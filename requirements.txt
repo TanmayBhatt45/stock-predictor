@@ -1,8 +1,1 @@
-Flask
-numpy
-pandas
-yfinance
-matplotlib
-tensorflow
-scikit-learn
-gunicorn
+certifi==2025.1.31
