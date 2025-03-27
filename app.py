@@ -30,12 +30,16 @@ model = load_model("best_bayes_optimized_model.keras")
 def home():
     return "Stock Predictor API is running!"
 
-@app.route("/predict", methods=["GET"])
+@app.route("/predict", methods=["GET", "POST"])
 def predict_stock():
     try:
-        # Get user input
-        ticker = request.args.get("ticker", default="AAPL", type=str).upper()
-        days_to_predict = request.args.get("days", default=7, type=int)
+        if request.method == "POST":
+            data = request.get_json()
+            ticker = data.get("ticker", "AAPL").upper()
+            days_to_predict = int(data.get("days", 7))
+        else:
+            ticker = request.args.get("ticker", default="AAPL", type=str).upper()
+            days_to_predict = request.args.get("days", default=7, type=int)
 
         # Fetch historical stock data
         df = yf.download(ticker, period="5y")[['Close']]
