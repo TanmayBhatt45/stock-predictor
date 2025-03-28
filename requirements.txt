@@ -14,4 +14,4 @@ numpy
 pandas 
 yfinance 
 matplotlib 
-scikit-learn 
+scikit-learn
