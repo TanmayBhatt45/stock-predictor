@@ -11,9 +11,15 @@ import os
 import sys
 import traceback
 import warnings
-
-# Comprehensive logging setup
 import logging
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+import yfinance as yf
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+# Setup logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[
@@ -25,28 +31,19 @@ logging.basicConfig(level=logging.INFO,
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.filterwarnings('ignore')
 
-import tensorflow as tf
-import numpy as np
-import pandas as pd
-import yfinance as yf
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-# Explicitly configure TensorFlow to use CPU
+# Explicitly configure TensorFlow to use CPU (Hugging Face Spaces doesn't support GPU)
 tf.config.set_visible_devices([], 'GPU')
 tf.get_logger().setLevel('ERROR')
 
 app = Flask(__name__)
 CORS(app)
 
-# Robust model loading
+# Load model function
 def load_ml_model():
     try:
         from tensorflow.keras.models import load_model
-
         logging.info("Attempting to load model...")
 
-        # Check if model file exists
         if not os.path.exists("best_bayes_optimized_model.keras"):
             logging.error("Model file not found!")
             return None
@@ -60,13 +57,9 @@ def load_ml_model():
         return None
 
 # Load model at startup
-try:
-    model = load_ml_model()
-    if model is None:
-        logging.critical("FATAL: Could not load ML model")
-        sys.exit(1)
-except Exception as e:
-    logging.critical(f"Startup error: {e}")
+model = load_ml_model()
+if model is None:
+    logging.critical("FATAL: Could not load ML model")
     sys.exit(1)
 
 @app.route("/", methods=["GET"])
@@ -90,19 +83,16 @@ def predict():
 
         # Fetch historical stock data
         df = yf.download(ticker, period="2y")
-
         if df.empty:
             return jsonify({"error": f"No data found for ticker {ticker}"}), 400
 
         df = df[['Close']]
 
         from sklearn.preprocessing import MinMaxScaler
-
-        # Normalize data using MinMaxScaler
         scaler = MinMaxScaler(feature_range=(0, 1))
         df_scaled = scaler.fit_transform(df)
 
-        # Prepare last 60 days as input sequence
+        # Prepare last 30 days as input sequence
         sequence_length = 30
         last_sequence = df_scaled[-sequence_length:].reshape(1, sequence_length, 1)
 
@@ -132,8 +122,8 @@ def predict():
         logging.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
-# Proper port binding for Render
+# Port binding for Hugging Face Spaces
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 7860))  # Default HF Spaces port
     logging.info(f"Starting server on port {port}")
     app.run(host="0.0.0.0", port=port)
