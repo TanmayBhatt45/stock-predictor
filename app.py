@@ -7,42 +7,33 @@ Original file is located at
     https://colab.research.google.com/drive/1rnS6_0UJ9zY631zz1GovYBk11BPNR7DT
 """
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import matplotlib
-matplotlib.use("Agg")  # Set headless backend for Matplotlib
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
-import os
+from pandas.tseries.offsets import BDay
 
 app = Flask(__name__)
 
-# Force CPU usage (Render doesn't support GPU)
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# Load the trained model
+MODEL_PATH = "best_bayes_optimized_model.keras"  # Ensure this file is in your Render deployment
+model = load_model(MODEL_PATH)
 
-# Load the trained LSTM model
-model = load_model("best_bayes_optimized_model.keras")
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Stock Predictor API is running!"
-
-@app.route("/predict", methods=["GET", "POST"])
-def predict_stock():
+@app.route("/predict", methods=["POST"])
+def predict():
     try:
-        if request.method == "POST":
-            data = request.get_json()
-            ticker = data.get("ticker", "AAPL").upper()
-            days_to_predict = int(data.get("days", 7))
-        else:
-            ticker = request.args.get("ticker", default="AAPL", type=str).upper()
-            days_to_predict = request.args.get("days", default=7, type=int)
+        data = request.get_json()
+        ticker = data.get("ticker").strip().upper()
+        days_to_predict = int(data.get("days"))
 
         # Fetch historical stock data
-        df = yf.download(ticker, period="5y")[['Close']]
+        df = yf.download(ticker, period="5y")
+        df = df[['Close']]
+
+        # Normalize the data
         scaler = MinMaxScaler(feature_range=(0, 1))
         df_scaled = scaler.fit_transform(df)
 
@@ -50,52 +41,30 @@ def predict_stock():
         sequence_length = 60
         last_sequence = df_scaled[-sequence_length:].reshape(1, sequence_length, 1)
 
+        # Predict future prices
         predicted_prices = []
         current_input = last_sequence.copy()
+
         for _ in range(days_to_predict):
             next_pred = model.predict(current_input, verbose=0)
             predicted_prices.append(next_pred[0][0])
             current_input = np.append(current_input[:, 1:, :], [[[next_pred[0][0]]]], axis=1)
 
-        # Convert predictions back to actual stock prices
+        # Convert predictions back to actual prices
         predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, 1))
+
+        # Generate future trading dates
         future_dates = pd.bdate_range(start=pd.Timestamp.today(), periods=days_to_predict)
 
-        # Create and save the stock price plot
-        plt.figure(figsize=(12, 6))
-        plt.plot(df.index[-100:], df["Close"].values[-100:], label="Actual Prices", color="blue")
-        plt.plot(future_dates, predicted_prices, label="Predicted Prices", color="red", linestyle="dashed")
-        plt.xlabel("Date")
-        plt.ylabel("Stock Price")
-        plt.title(f"Predicted Stock Price for {ticker}")
-        plt.legend()
-        plt.xticks(rotation=45)
-
-        # Ensure the static directory exists
-        os.makedirs("static", exist_ok=True)
-        plot_path = "static/stock_prediction.png"
-        plt.savefig(plot_path)
-        plt.close()
-
-        # Prepare JSON response
-        response = {
-            "ticker": ticker,
-            "predictions": [
-                {"date": str(date.date()), "price": round(float(price), 2)}
-                for date, price in zip(future_dates, predicted_prices.flatten())
-            ],
-            "graph_url": "/plot"
-        }
+        # Create response
+        response = {"ticker": ticker, "predictions": []}
+        for date, price in zip(future_dates, predicted_prices.flatten()):
+            response["predictions"].append({"date": date.strftime('%Y-%m-%d'), "price": round(float(price), 2)})
 
         return jsonify(response)
+
     except Exception as e:
         return jsonify({"error": str(e)})
 
-@app.route("/plot", methods=["GET"])
-def get_plot():
-    return send_file("static/stock_prediction.png", mimetype="image/png")
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Default to 5000 if PORT is not set
-    app.run(host="0.0.0.0", port=port)
-
+    app.run(host="0.0.0.0", port=10000)
