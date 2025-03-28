@@ -11,12 +11,14 @@ import os
 
 # ✅ Completely disable GPU for TensorFlow
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "false"  # Ensure TensorFlow doesn't allocate GPU memory
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # Suppress unnecessary TensorFlow logs
 
 import tensorflow as tf
 
-# ✅ Force TensorFlow to use CPU only
-tf.config.set_visible_devices([], "GPU")
+# ✅ Explicitly set TensorFlow to use only CPU
+tf.config.experimental.set_visible_devices([], "GPU")
+
 
 
 
