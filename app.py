@@ -8,55 +8,53 @@ Original file is located at
 """
 
 import os
-
-# ✅ Completely disable GPU for TensorFlow
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "false"  # Ensure TensorFlow doesn't allocate GPU memory
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # Suppress unnecessary TensorFlow logs
-
-import tensorflow as tf
-
-# ✅ Explicitly set TensorFlow to use only CPU
-tf.config.experimental.set_visible_devices([], "GPU")
-
-
-
-
 from flask import Flask, request, jsonify
+import tensorflow as tf
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
-from pandas.tseries.offsets import BDay
+
+# ✅ Disable GPU to prevent CUDA errors
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "false"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+# ✅ Load trained model
+model = load_model("best_bayes_optimized_model.keras")
 
 app = Flask(__name__)
 
-# Load the trained model
-MODEL_PATH = "best_bayes_optimized_model.keras"  # Ensure this file is in your Render deployment
-model = load_model(MODEL_PATH)
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "Stock Predictor API is running! Use the /predict endpoint."})
 
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json()
-        ticker = data.get("ticker").strip().upper()
-        days_to_predict = int(data.get("days"))
+        ticker = data.get("ticker", "").strip().upper()
+        days_to_predict = int(data.get("days", 1))
 
-        # Fetch historical stock data
+        if not ticker:
+            return jsonify({"error": "Missing 'ticker' parameter"}), 400
+        if days_to_predict <= 0:
+            return jsonify({"error": "Days must be greater than 0"}), 400
+
+        # ✅ Fetch historical stock data
         df = yf.download(ticker, period="5y")
         df = df[['Close']]
 
-        # Normalize the data
+        # ✅ Normalize data using MinMaxScaler
         scaler = MinMaxScaler(feature_range=(0, 1))
         df_scaled = scaler.fit_transform(df)
 
-        # Prepare input sequence for prediction
+        # ✅ Prepare last 60 days as input sequence
         sequence_length = 60
         last_sequence = df_scaled[-sequence_length:].reshape(1, sequence_length, 1)
 
-        # Predict future prices
+        # ✅ Predict future prices
         predicted_prices = []
         current_input = last_sequence.copy()
 
@@ -65,21 +63,22 @@ def predict():
             predicted_prices.append(next_pred[0][0])
             current_input = np.append(current_input[:, 1:, :], [[[next_pred[0][0]]]], axis=1)
 
-        # Convert predictions back to actual prices
+        # ✅ Convert predictions back to actual stock prices
         predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, 1))
 
-        # Generate future trading dates
+        # ✅ Generate future trading dates
         future_dates = pd.bdate_range(start=pd.Timestamp.today(), periods=days_to_predict)
 
-        # Create response
-        response = {"ticker": ticker, "predictions": []}
-        for date, price in zip(future_dates, predicted_prices.flatten()):
-            response["predictions"].append({"date": date.strftime('%Y-%m-%d'), "price": round(float(price), 2)})
+        # ✅ Return predictions as JSON
+        predictions = [{"date": str(date.date()), "predicted_price": float(price)}
+                       for date, price in zip(future_dates, predicted_prices.flatten())]
 
-        return jsonify(response)
+        return jsonify({"ticker": ticker, "predictions": predictions})
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
+# ✅ Proper port binding for Render
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))  # Render assigns PORT dynamically
+    app.run(host="0.0.0.0", port=port, debug=True)
