@@ -7,6 +7,10 @@ Original file is located at
     https://colab.research.google.com/drive/1rnS6_0UJ9zY631zz1GovYBk11BPNR7DT
 """
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU
+
+
 from flask import Flask, request, jsonify
 import numpy as np
 import pandas as pd
