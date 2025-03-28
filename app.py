@@ -89,7 +89,7 @@ def predict():
             return jsonify({"error": "Days must be greater than 0"}), 400
 
         # Fetch historical stock data
-        df = yf.download(ticker, period="5y")
+        df = yf.download(ticker, period="2y")
 
         if df.empty:
             return jsonify({"error": f"No data found for ticker {ticker}"}), 400
@@ -103,7 +103,7 @@ def predict():
         df_scaled = scaler.fit_transform(df)
 
         # Prepare last 60 days as input sequence
-        sequence_length = 60
+        sequence_length = 30
         last_sequence = df_scaled[-sequence_length:].reshape(1, sequence_length, 1)
 
         # Predict future prices
