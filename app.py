@@ -8,9 +8,20 @@ Original file is located at
 """
 
 import os
+import sys
+import traceback
 import warnings
 
-# Suppress TensorFlow warnings and logs
+# Comprehensive logging setup
+import logging
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.StreamHandler(sys.stdout),
+                        logging.FileHandler('app_log.txt')
+                    ])
+
+# Suppress warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.filterwarnings('ignore')
 
@@ -20,27 +31,53 @@ import pandas as pd
 import yfinance as yf
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from tensorflow.keras.models import load_model
-from sklearn.preprocessing import MinMaxScaler
 
 # Explicitly configure TensorFlow to use CPU
 tf.config.set_visible_devices([], 'GPU')
-
-# Suppress TensorFlow logging
 tf.get_logger().setLevel('ERROR')
 
-# ✅ Load trained model
-model = load_model("best_bayes_optimized_model.keras")
-
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)
+
+# Robust model loading
+def load_ml_model():
+    try:
+        from tensorflow.keras.models import load_model
+
+        logging.info("Attempting to load model...")
+
+        # Check if model file exists
+        if not os.path.exists("best_bayes_optimized_model.keras"):
+            logging.error("Model file not found!")
+            return None
+
+        model = load_model("best_bayes_optimized_model.keras")
+        logging.info("Model loaded successfully!")
+        return model
+    except Exception as e:
+        logging.error(f"Model loading failed: {e}")
+        logging.error(traceback.format_exc())
+        return None
+
+# Load model at startup
+try:
+    model = load_ml_model()
+    if model is None:
+        logging.critical("FATAL: Could not load ML model")
+        sys.exit(1)
+except Exception as e:
+    logging.critical(f"Startup error: {e}")
+    sys.exit(1)
 
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "Stock Predictor API is running! Use the /predict endpoint."})
+    return jsonify({"message": "Stock Predictor API is running!", "model_loaded": model is not None})
 
 @app.route("/predict", methods=["POST"])
 def predict():
+    if model is None:
+        return jsonify({"error": "ML Model not loaded"}), 500
+
     try:
         data = request.get_json()
         ticker = data.get("ticker", "").strip().upper()
@@ -51,19 +88,25 @@ def predict():
         if days_to_predict <= 0:
             return jsonify({"error": "Days must be greater than 0"}), 400
 
-        # ✅ Fetch historical stock data
+        # Fetch historical stock data
         df = yf.download(ticker, period="5y")
+
+        if df.empty:
+            return jsonify({"error": f"No data found for ticker {ticker}"}), 400
+
         df = df[['Close']]
 
-        # ✅ Normalize data using MinMaxScaler
+        from sklearn.preprocessing import MinMaxScaler
+
+        # Normalize data using MinMaxScaler
         scaler = MinMaxScaler(feature_range=(0, 1))
         df_scaled = scaler.fit_transform(df)
 
-        # ✅ Prepare last 60 days as input sequence
+        # Prepare last 60 days as input sequence
         sequence_length = 60
         last_sequence = df_scaled[-sequence_length:].reshape(1, sequence_length, 1)
 
-        # ✅ Predict future prices
+        # Predict future prices
         predicted_prices = []
         current_input = last_sequence.copy()
 
@@ -72,22 +115,25 @@ def predict():
             predicted_prices.append(next_pred[0][0])
             current_input = np.append(current_input[:, 1:, :], [[[next_pred[0][0]]]], axis=1)
 
-        # ✅ Convert predictions back to actual stock prices
+        # Convert predictions back to actual stock prices
         predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, 1))
 
-        # ✅ Generate future trading dates
+        # Generate future trading dates
         future_dates = pd.bdate_range(start=pd.Timestamp.today(), periods=days_to_predict)
 
-        # ✅ Return predictions as JSON
+        # Return predictions as JSON
         predictions = [{"date": str(date.date()), "predicted_price": float(price)}
                        for date, price in zip(future_dates, predicted_prices.flatten())]
 
         return jsonify({"ticker": ticker, "predictions": predictions})
 
     except Exception as e:
+        logging.error(f"Prediction error: {e}")
+        logging.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
-# ✅ Proper port binding for Render
+# Proper port binding for Render
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # Render assigns PORT dynamically
+    port = int(os.environ.get("PORT", 10000))
+    logging.info(f"Starting server on port {port}")
     app.run(host="0.0.0.0", port=port)
