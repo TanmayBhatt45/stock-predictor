@@ -2,7 +2,8 @@ blinker==1.9.0
 certifi==2025.1.31
 click==8.1.8
 colorama==0.4.6
-Flask==3.1.0
+flask-cors
+tensorflow-cpu
 gunicorn==23.0.0
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -13,5 +14,4 @@ numpy
 pandas 
 yfinance 
 matplotlib 
-tensorflow 
 scikit-learn 
