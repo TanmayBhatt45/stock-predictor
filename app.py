@@ -8,23 +8,32 @@ Original file is located at
 """
 
 import os
-from flask import Flask, request, jsonify
+import warnings
+
+# Suppress TensorFlow warnings and logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+warnings.filterwarnings('ignore')
+
 import tensorflow as tf
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
 
-# ✅ Disable GPU to prevent CUDA errors
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "false"
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+# Explicitly configure TensorFlow to use CPU
+tf.config.set_visible_devices([], 'GPU')
+
+# Suppress TensorFlow logging
+tf.get_logger().setLevel('ERROR')
 
 # ✅ Load trained model
 model = load_model("best_bayes_optimized_model.keras")
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 @app.route("/", methods=["GET"])
 def home():
@@ -81,4 +90,4 @@ def predict():
 # ✅ Proper port binding for Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render assigns PORT dynamically
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port)
